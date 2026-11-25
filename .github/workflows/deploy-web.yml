@@ -1,0 +1,53 @@
+name: Deploy Web (Netlify)
+
+# Публикует веб-версию Tosto. Срабатывает при каждом push в main/master и вручную.
+# Без секретов NETLIFY_AUTH_TOKEN и NETLIFY_SITE_ID просто пропускается.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      VITE_SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Проверка секретов
+        id: check
+        run: |
+          if [ -z "$NETLIFY_AUTH_TOKEN" ] || [ -z "$NETLIFY_SITE_ID" ]; then
+            echo "::warning::Нет NETLIFY_AUTH_TOKEN / NETLIFY_SITE_ID, веб-версия не публикуется."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          elif [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_PUBLISHABLE_KEY" ]; then
+            echo "::error::Добавьте секреты SUPABASE_URL и SUPABASE_PUBLISHABLE_KEY."
+            exit 1
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.check.outputs.go == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - if: steps.check.outputs.go == 'true'
+        uses: oven-sh/setup-bun@v2
+
+      - if: steps.check.outputs.go == 'true'
+        run: bun install
+
+      - if: steps.check.outputs.go == 'true'
+        run: npm run build:mobile
+
+      - if: steps.check.outputs.go == 'true'
+        name: Публикация на Netlify
+        run: npx --yes netlify-cli deploy --dir=dist/client --prod --no-build
